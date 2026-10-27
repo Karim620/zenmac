@@ -1,33 +1,52 @@
 # 🧘‍♂️ ZenMac
 
-> **A safe, minimalist, and beautiful macOS system monitor & storage cleaner.**
+> **A 100% Native, lightweight, non-destructive macOS system monitor & developer cache cleaner built with Swift 6, SwiftUI, and Darwin/Mach APIs.**
 
 ![ZenMac App Icon](icon.png)
 
-ZenMac is a lightweight, Electron-based macOS utility built for users who want to keep an eye on their system stats and safely reclaim storage without risking their system's integrity. Unlike other cleaning utilities that request administrator permissions and run destructive `rm -rf` commands, **ZenMac is designed from the ground up to be safe, transparent, and non-destructive.**
+ZenMac is a minimalist macOS utility (targeting **macOS 14.0+ Sonoma / Sequoia**) built for developers and power users who want real-time kernel telemetry and safe storage reclamation without risking system integrity. Unlike bloated Electron wrappers or aggressive cleaners that demand `sudo` and run destructive `rm -rf` commands, **ZenMac is engineered from the ground up using native Darwin/Mach APIs and strict non-destructive guardrails.**
 
 ---
 
-## ✨ Features
+## ✨ Key Engineering Highlights
 
-- **📊 Real-time System Dashboard:** Monitor CPU usage, memory distribution, network speeds, battery health, and disk usage in real time.
-- **🧹 Whitelist-Only Cleaner:** Scans only predefined developer caches (npm, yarn, CocoaPods, Gradle, Xcode Derived Data) and standard system logs/caches.
-- **🛡️ Sudo-Free Execution:** Barred from running as root to guarantee it can never touch system-protected directories.
-- **🗑️ Non-Destructive Cleaning:** Cleaned files are safely moved to the macOS Trash using native APIs, allowing you to easily review and restore them.
-- **🎨 Glassmorphism Design:** A stunning dark mode interface matching modern macOS aesthetics with smooth animations and responsive charts.
+- **⚡ Zero Shell Subprocesses:** Never spawns `Process()` / `NSTask` to run `top`, `vm_stat`, `df`, or `du`. All telemetry is sampled directly from the XNU kernel via Mach traps (`host_processor_info`, `host_statistics64(HOST_CPU_LOAD_INFO)`, `host_statistics64(HOST_VM_INFO64)`) and `statfs`.
+- **🪶 Ultra-Low Footprint:** Targets **< 25 MB RAM** and **< 1% CPU** during active 1-second polling, with deterministic `vm_deallocate` Mach buffer cleanup.
+- **💾 APFS-Aware Physical Sizing:** Uses `FileManager.enumerator` with `.totalFileAllocatedSizeKey` and `.volumeAvailableCapacityForImportantUsageKey` for accurate physical block allocation and purgeable space telemetry on APFS volumes.
+- **🧹 Safe Developer & User Cache Cleaner:** Targets strictly regenerable caches (`Xcode DerivedData`, `Homebrew`, `npm` / `pnpm` / `Yarn`, `~/Library/Caches`, and `~/Library/Logs`) with **Move to Trash**, **Dry-Run Preview**, and **Permanent Delete** modes.
+- **🪟 Native macOS Vibrancy & Menu Bar Extra:** Built with SwiftUI `NavigationSplitView`, `.ultraThinMaterial` glass vibrancy, and a live `MenuBarExtra` status bar widget.
 
 ---
 
-## 🔒 Security Architecture (Why it's safe)
+## 🔒 Security Architecture (4 Core Pillars)
 
-Many system cleaners are essentially "black boxes" running root commands. ZenMac is built on four core safety pillars:
-
-| Pillar | How it works |
+| Pillar | Implementation |
 | :--- | :--- |
-| **No Admin/Sudo** | ZenMac actively checks for `UID === 0` on launch. If run with `sudo`, it exits immediately. |
-| **Strict Whitelist** | The scanner has no code path to crawl arbitrary directories. It only scans a hardcoded whitelist of safe temp/cache folders. |
-| **Active Blocklist** | An independent, pre-resolved path blocklist prevents operations on critical system directories (`/System`, `/Library`, `/Applications`) and user directories (`~/Documents`, `~/Desktop`, `~/Downloads`). |
-| **Native Trash Integration** | ZenMac never executes `rm -rf`. It uses Electron's `shell.trashItem` API to move files to the Trash safely. |
+| **1. Hard Anti-Root Check (`UID != 0`)** | On launch (`ZenMacApp.init`) and before any cleanup (`APFSDiskWorker`), ZenMac checks `getuid() == 0`. If run with `sudo` or as `root`, it immediately aborts. |
+| **2. Strict Whitelist & Protected Bundle Exclusions** | Only scans predefined regenerable cache paths. Automatically excludes critical Apple services in `~/Library/Caches` (`CloudKit`, `Safari`, `PassKit`, `GeoServices`, `FamilyCircle`, etc.). |
+| **3. Symlink-Resolved Blocklist** | Resolves symlinks (`resolvingSymlinksInPath()`) and blocks operations on `/System`, `/Library`, `/Applications`, `~/Desktop`, `~/Documents`, `~/Downloads`, `~/Library/Application Support`, `~/Library/Preferences`, and `~/Library/Keychains`. |
+| **4. Reversible Cleanup & Dry-Run** | Defaults to `FileManager.default.trashItem(at:resultingItemURL:)` so cleaned caches can be restored from the macOS Trash, alongside a zero-modification **Dry-Run Preview** inspector. |
+
+---
+
+## 🗂️ Project Structure
+
+```text
+ZenMac/
+├── ZenMacApp.swift                  # App entry point, anti-root check, WindowGroup & MenuBarExtra scenes
+├── Models/
+│   ├── SystemMetrics.swift          # Sendable structs for CPUMetrics, MemoryMetrics & MemoryPressureLevel
+│   ├── StorageVolume.swift          # APFS/POSIX volume capacity & purgeable space model
+│   └── CacheCategory.swift          # CacheCategory, CacheItem, CleanupStrategy & CleanupReport models
+├── Services/
+│   ├── SystemMonitorService.swift   # @Observable @MainActor service + MachTelemetrySampler actor
+│   └── DiskScannerService.swift     # Concurrent APFS block scanner & non-destructive cleanup actor
+└── Views/
+    ├── MainWindowView.swift         # NavigationSplitView with .ultraThinMaterial vibrancy
+    ├── DashboardView.swift          # Live CPU gauges, sparkline, VM_INFO64 RAM & APFS storage bars
+    ├── CleanerView.swift            # Category disclosure list, Dry-Run sheet & Trash execution
+    └── MenuBarView.swift            # Lightweight MenuBarExtra status item & 1-click safe clean
+```
 
 ---
 
@@ -35,30 +54,34 @@ Many system cleaners are essentially "black boxes" running root commands. ZenMac
 
 ### Prerequisites
 
-You need [Node.js](https://nodejs.org/) installed on your Mac.
+- **macOS 14.0+** (Sonoma or Sequoia)
+- **Xcode 16.0+** (Swift 6 toolchain)
 
-### Installation
+### Build & Run via Swift Package Manager / CLI
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/yourusername/zenmac.git
-   cd zenmac
-   ```
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/zenmac.git
+cd mac-cleaner-stats
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+# Compile with Swift 6 strict concurrency
+swift build -c release
 
-3. Run the application:
-   ```bash
-   npm start
-   ```
+# Or open directly in Xcode
+xed .
+```
+
+### Configuring Xcode Signing & Capabilities
+
+1. **App Sandbox:** Disable `App Sandbox` under **Signing & Capabilities** (or set `com.apple.security.app-sandbox` to `false`) so `FileManager` can directly inspect and clean `~/Library/Developer/Xcode/DerivedData`, `~/Library/Caches/Homebrew`, `~/.npm/_cacache`, and `~/Library/pnpm/store`.
+2. **Hardened Runtime:** Keep **Hardened Runtime** enabled for macOS Notarization outside the Mac App Store.
+3. **Full Disk Access (Optional):** If macOS TCC restricts specific third-party subdirectories inside `~/Library/Caches` or `~/Library/Logs`, grant ZenMac permission in **System Settings → Privacy & Security → Full Disk Access**.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Core:** [Electron](https://www.electronjs.org/) (Desktop environment)
-- **Stats Engine:** [systeminformation](https://systeminformation.io/) (System data collection)
-- **UI & Styling:** Vanilla HTML5, CSS3 (Glassmorphism & animations), and JavaScript.
+- **Language:** Swift 6 (Strict Concurrency, `Sendable`, Actors, `@Observable`)
+- **UI Framework:** SwiftUI (`NavigationSplitView`, `MenuBarExtra`, `.ultraThinMaterial`)
+- **System Telemetry:** Darwin / Mach (`host_processor_info`, `host_statistics64`, `statfs`, `URLResourceKey`)
+- **Zero External Dependencies:** Pure Apple system frameworks (`SwiftUI`, `Foundation`, `AppKit`, `Darwin`, `OSLog`)

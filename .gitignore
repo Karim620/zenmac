@@ -1,7 +1,29 @@
+# Swift Package Manager & Xcode
+.build/
+.swiftpm/
+Packages/
+DerivedData/
+build/
+ZenMac.app
+AppIcon.icns
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.moved-aside
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Legacy Node / Electron artifacts
 node_modules/
 dist/
 
-# OS generated files
+# macOS generated files
 .DS_Store
+.AppleDouble
+.LSOverride
 Icon?
 ._*
+.Spotlight-V100
+.Trashes
